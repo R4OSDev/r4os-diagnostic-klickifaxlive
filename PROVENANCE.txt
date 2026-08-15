@@ -1,0 +1,10 @@
+KFXLIVE.R4X provenance
+======================
+
+Fachliche Quelle: Commit 259cbfac272c47ac1a7828de973512d17b29ae10,
+Pfad Code/System/Diagnostics/KlickifaxLive.
+
+Source und Manifest wurden in 0.64.18 unveraendert uebernommen. Das Buildscript
+ersetzt nur den alten festen R4IMG-Nachbarpfad durch das gepinnte Librarypaket.
+Neu sind Paketpins, Buildstarter, Settings, Repositorydokumentation und
+Git-Hygiene.
