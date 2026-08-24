@@ -1,4 +1,10 @@
 KlickifaxLive
 ==============
 
-KFXLIVE.R4X prueft die R4IMG-Laufzeitintegration im R4OS-Testprofil.
+KFXLIVE.R4X ist der test-only Live-Abnahmetreiber fuer den produktiven
+Klickifax-Unterbau. Er laedt begrenzte HTTP-/TLS-Antworten ueber App-Web,
+verarbeitet HTML, CSS, Formulare, Layout, JavaScript und WebRuntime mit
+denselben SDK-Schichten wie der Browser und prueft optional Raster- und
+SVG-Dekodierung ueber R4IMG. Seit 0.69.30 wird das Artefakt gegen die
+kapazitaetssichere RegExp-Ausfuehrung und die koaleszierte DOM-Dirtiness neu
+gebaut; eigene Browser- oder JavaScript-Semantik fuehrt die Diagnose nicht.
