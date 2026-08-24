@@ -1,10 +1,16 @@
 KlickifaxLive
 ==============
 
-KFXLIVE.R4X ist der test-only Live-Abnahmetreiber fuer den produktiven
+KFXLIVE.R4X ist der nur gezielt aufgenommene Live-Abnahmetreiber fuer den produktiven
 Klickifax-Unterbau. Er laedt begrenzte HTTP-/TLS-Antworten ueber App-Web,
 verarbeitet HTML, CSS, Formulare, Layout, JavaScript und WebRuntime mit
 denselben SDK-Schichten wie der Browser und prueft optional Raster- und
 SVG-Dekodierung ueber R4IMG. Seit 0.69.30 wird das Artefakt gegen die
 kapazitaetssichere RegExp-Ausfuehrung und die koaleszierte DOM-Dirtiness neu
 gebaut; eigene Browser- oder JavaScript-Semantik fuehrt die Diagnose nicht.
+Das Manifest verwendet `IMAGE_SCOPE=none`, damit normale Images und
+Profilbuilds das grosse Diagnosemodul auslassen. Der Workspace-Modus
+`-testbrowser` baut und installiert es zusammen mit Klickifax und den
+Browserprotokollen. Da der automatisierte Headless-Lauf ohne Netzwerk
+startet, werden die Live-Proben anschliessend bei Bedarf manuell in einer
+netzwerkfaehigen QEMU-Sitzung ausgefuehrt.
