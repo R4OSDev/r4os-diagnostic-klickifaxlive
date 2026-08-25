@@ -8,6 +8,9 @@ denselben SDK-Schichten wie der Browser und prueft optional Raster- und
 SVG-Dekodierung ueber R4IMG. Seit 0.69.30 wird das Artefakt gegen die
 kapazitaetssichere RegExp-Ausfuehrung und die koaleszierte DOM-Dirtiness neu
 gebaut; eigene Browser- oder JavaScript-Semantik fuehrt die Diagnose nicht.
+Seit 0.69.51 nutzt sie ausserdem die generationsgepruefte Bytecodeausfuehrung
+und den erst bei einem Skript angelegten, beim Dokumentabbau wieder
+freigegebenen JavaScript-Realm der gemeinsamen SDK-WebRuntime.
 Das Manifest verwendet `IMAGE_SCOPE=none`, damit normale Images und
 Profilbuilds das grosse Diagnosemodul auslassen. Der Workspace-Modus
 `-testbrowser` baut und installiert es zusammen mit Klickifax und den

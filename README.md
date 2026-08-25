@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.2.9`
+- Version: `0.2.10`
 - Image target: `/R4OS/SOFTWARE/TERMINAL/DIAG/KFXLIVE.R4X`
 - Image scope: `none` (included only by the explicit browser test)
 - Canonical project manifest: `module.R4MF`
