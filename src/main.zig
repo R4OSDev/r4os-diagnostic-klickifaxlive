@@ -18,6 +18,7 @@ const consent_switch = "/CONSENT";
 const warmup_switch = "/WARM";
 const page_switch = "/PAGE";
 const image_switch = "/IMAGE";
+const script_switch = "/SCRIPT";
 const form_target_capacity: usize = r4os.web_navigation.url_capacity + 1;
 const form_body_capacity: usize = 8 * 1024;
 // The live acceptance follows the productive browser policy so a finite
@@ -190,6 +191,9 @@ pub fn r4_app_main(r4_app: *r4os.App) i32 {
         return 1;
     };
     const args = trim(zSlice(sys.argsRaw()));
+    const script_mode = startsWithIgnoreCase(args, script_switch) and
+        (args.len == script_switch.len or isSpace(args[script_switch.len]));
+    const script_args = if (script_mode) trim(args[script_switch.len..]) else "";
     const consent_mode = startsWithIgnoreCase(args, consent_switch) and
         (args.len == consent_switch.len or isSpace(args[consent_switch.len]));
     const warmup_mode = startsWithIgnoreCase(args, warmup_switch) and
@@ -202,7 +206,9 @@ pub fn r4_app_main(r4_app: *r4os.App) i32 {
     const warmup_args = if (warmup_mode) trim(args[warmup_switch.len..]) else "";
     const page_args = if (page_mode) trim(args[page_switch.len..]) else "";
     const image_args = if (image_mode) trim(args[image_switch.len..]) else "";
-    const url = if (consent_mode)
+    const url = if (script_mode)
+        (if (script_args.len == 0) default_page_url else script_args)
+    else if (consent_mode)
         (if (consent_args.len == 0) default_consent_url else consent_args)
     else if (warmup_mode)
         (if (warmup_args.len == 0) default_consent_url else warmup_args)
@@ -302,6 +308,20 @@ pub fn r4_app_main(r4_app: *r4os.App) i32 {
             sys.write(if (response.secure) "yes" else "no");
             sys.write(" final=");
             sys.println(response.final_url.bytes());
+            if (script_mode) {
+                if (response.status < 200 or response.status >= 400 or response.body.len == 0) return 1;
+                const probe = allocator.create(BrowserProbe) catch return 1;
+                defer allocator.destroy(probe);
+                probe.load(response.body, response.content_type orelse "") catch return 1;
+                const navigation = executePageScripts(sys, &web, allocator, probe, storage, response, 0) catch |err| {
+                    sys.write("KFXLIVE script-result=error code=");
+                    sys.println(@errorName(err));
+                    return 1;
+                };
+                sys.write("KFXLIVE script-result=ok target=");
+                sys.println(navigation.target.bytes());
+                return 0;
+            }
             if (!response.secure or response.status < 200 or response.status >= 400 or response.body.len == 0) return 1;
             if (consent_mode) return runConsentFlow(sys, &web, allocator, buffers, storage, response);
             if (page_mode) return runPageFlow(sys, allocator, response);
@@ -690,7 +710,7 @@ fn inspectConsentTarget(
         return 1;
     }
 
-    const navigation = executePageScripts(sys, allocator, probe, storage, final, script_navigations) catch |err| {
+    const navigation = executePageScripts(sys, web, allocator, probe, storage, final, script_navigations) catch |err| {
         sys.write("KFXLIVE consent-result=error code=script_");
         sys.println(@errorName(err));
         return 1;
@@ -740,6 +760,7 @@ fn printConsentResult(
 
 fn executePageScripts(
     sys: r4os.r4sys.Context,
+    web: *r4os.WebTransport,
     allocator: std.mem.Allocator,
     probe: *BrowserProbe,
     storage: *r4os.web_security.BrowserStorage,
@@ -766,6 +787,19 @@ fn executePageScripts(
     }, script_step_budget);
     runtime.setScriptObserver(.{ .context = &trace_context, .report = reportScriptExecution });
     runtime.setMonotonicClock(.{ .context = &trace_context, .now_milliseconds = diagnosticMonotonicNow });
+    var resource_context: ScriptResources = .{ .probe = probe, .images = if (sys.base.bundle) |bundle| r4img.Context.init(bundle.raw) else null };
+    runtime.setResourceHandler(.{ .context = &resource_context, .complete = completeScriptResource });
+    const requests = try allocator.alloc(r4os.web_runtime_jobs.RequestJob, r4os.app_web_jobs.capacity);
+    defer allocator.free(requests);
+    for (requests) |*request| request.* = .{
+        .job = .{ .transport = web.* },
+        .allocator = allocator,
+        .owner = .{ .context = &trace_context, .find = scriptRuntimeForGeneration },
+    };
+    defer {
+        for (requests) |*request| request.job.cancel();
+        for (requests) |*request| request.deinit();
+    }
     const document_now_ms = diagnosticMonotonicNow(&trace_context);
     try runtime.beginDocument(
         &probe.document,
@@ -784,59 +818,108 @@ fn executePageScripts(
     sys.write(" scripts=");
     sys.printU64(scripts);
     sys.write(" steps=");
-    sys.printU64(runtime.runtime.stats.steps);
+    sys.printU64(scriptStepCount(runtime));
     sys.println("");
     var target: ?r4os.web_navigation.Url = null;
-    var now_ms = document_now_ms;
-    runtime.markDomContentLoadedStart(now_ms);
-    const dom_dispatch = try runtime.dispatchEvent(.document, "DOMContentLoaded", now_ms);
-    runtime.markDomContentLoadedEnd(now_ms);
-    runtime.markLoadStart(now_ms);
-    const load_dispatch = try runtime.dispatchEvent(.window, "load", now_ms);
-    runtime.markLoadComplete(now_ms);
-    sys.write("KFXLIVE script-lifecycle page=");
-    sys.printU64(page);
-    sys.write(" dom-queued=");
-    sys.printU64(dom_dispatch.queued);
-    sys.write(" load-queued=");
-    sys.printU64(load_dispatch.queued);
-    sys.println("");
-    var rounds: usize = 0;
-    while (rounds < 1000 and target == null) : (rounds += 1) {
-        now_ms += 50;
-        sys.write("KFXLIVE script-pump phase=begin page=");
-        sys.printU64(page);
-        sys.write(" round=");
-        sys.printU64(rounds);
-        sys.write(" steps=");
-        sys.printU64(runtime.runtime.stats.steps);
-        sys.println("");
+    var lifecycle_sent = false;
+    var idle_since: ?u64 = null;
+    const deadline = sys.ticks() +| sys.ticksFromMilliseconds(30_000);
+    while (sys.ticks() < deadline and target == null and !sys.programShouldClose()) {
+        var active: usize = 0;
+        for (requests) |*request| {
+            if (request.active and request.poll()) {
+                switch (request.job.result) {
+                    .response => |response| request.complete(response, 0),
+                    .failure => |err| request.fail(@tagName(err), err == .policy_rejected),
+                }
+                request.release();
+            }
+            if (!request.active) {
+                if (runtime.takeRequest()) |pending| {
+                    request.prepare(runtime, pending, if (pending.kind == .font) r4os.web_runtime.max_font_response_body_bytes + response_capacity else response_capacity, if (pending.kind == .font) r4os.web_runtime.max_font_response_body_bytes else response_capacity) catch {
+                        runtime.failRequest(pending.id, pending.generation, "Resource memory unavailable") catch {};
+                        continue;
+                    };
+                    if (!request.start(request.options)) {
+                        request.fail("Transport worker unavailable", false);
+                        request.release();
+                    }
+                }
+            }
+            if (request.active) active += 1;
+        }
+        const now_ms = diagnosticMonotonicNow(&trace_context);
         const jobs = try runtime.pump(now_ms, 64);
-        sys.write("KFXLIVE script-pump phase=finish page=");
-        sys.printU64(page);
-        sys.write(" round=");
-        sys.printU64(rounds);
-        sys.write(" jobs=");
-        sys.printU64(jobs);
-        sys.write(" steps=");
-        sys.printU64(runtime.runtime.stats.steps);
-        sys.println("");
+        if (!lifecycle_sent and runtime.resourcesSettled()) {
+            runtime.markDomContentLoadedStart(now_ms);
+            _ = try runtime.dispatchEvent(.document, "DOMContentLoaded", now_ms);
+            runtime.markDomContentLoadedEnd(now_ms);
+            runtime.markLoadStart(now_ms);
+            _ = try runtime.dispatchEvent(.window, "load", now_ms);
+            runtime.markLoadComplete(now_ms);
+            lifecycle_sent = true;
+            sys.println("KFXLIVE script-lifecycle resources=settled load=dispatched");
+        }
         while (runtime.takeAction()) |action| switch (action.kind) {
-            .navigate, .replace => target = action.url,
+            .navigate, .replace => if (action.generation == runtime.generation) {
+                target = action.url;
+            },
             else => {},
         };
-        if (jobs == 0 and rounds > 100) break;
+        if (jobs == 0 and active == 0 and lifecycle_sent) {
+            if (idle_since == null) idle_since = sys.ticks();
+            if (sys.ticks() -| idle_since.? >= sys.ticksFromMilliseconds(5_000)) break;
+        } else idle_since = null;
+        if (target == null) sys.sleepTicks(1);
     }
+    if (target == null and !runtime.resourcesSettled()) return error.ResourceDeadline;
+    var completed_scripts: usize = 0;
+    for (runtime.resources.entries[0..runtime.resources.count]) |resource|
+        if (resource.kind == .script and resource.state == .complete) {
+            completed_scripts += 1;
+        };
+
     return .{
         .target = target orelse return error.NavigationMissing,
-        .scripts = scripts,
-        .steps = runtime.runtime.stats.steps,
+        .scripts = completed_scripts,
+        .steps = scriptStepCount(runtime),
     };
+}
+
+fn scriptStepCount(runtime: *const r4os.web_runtime.WebRuntime) usize {
+    return if (runtime.javascriptRealmActive()) runtime.runtime.stats.steps else 0;
+}
+
+const ScriptResources = struct {
+    probe: *BrowserProbe,
+    images: ?r4img.Context,
+};
+fn scriptRuntimeForGeneration(raw: ?*anyopaque, generation: u32) ?*r4os.web_runtime.WebRuntime {
+    const context: *ScriptTraceContext = @ptrCast(@alignCast(raw.?));
+    return if (context.runtime.generation == generation) context.runtime else null;
+}
+fn completeScriptResource(raw: ?*anyopaque, completion: r4os.web_runtime.ResourceCompletion) bool {
+    const context: *ScriptResources = @ptrCast(@alignCast(raw.?));
+    switch (completion.kind) {
+        .stylesheet => {
+            context.probe.stylesheet.appendWithBase(completion.body, completion.final_url.bytes()) catch return false;
+            _ = context.probe.layout.reflow(&context.probe.document, &context.probe.stylesheet, .{ .width = 940, .height = 480 }) catch return false;
+            return true;
+        },
+        .image => {
+            const images = context.images orelse return false;
+            _ = images.probe(completion.body, completion.content_type) catch return false;
+            return true;
+        },
+        // The diagnostic has no font activation or child-window owner.
+        // Report these consumers as failed instead of claiming they loaded.
+        .font, .subdocument, .script => return false,
+    }
 }
 
 fn reportScriptProgress(raw_context: ?*anyopaque) bool {
     const context: *ScriptTraceContext = @ptrCast(@alignCast(raw_context orelse return false));
-    const steps = context.runtime.runtime.stats.steps;
+    const steps = scriptStepCount(context.runtime);
     if (steps < context.next_progress) return false;
     context.sys.write("KFXLIVE script-progress page=");
     context.sys.printU64(context.page);
