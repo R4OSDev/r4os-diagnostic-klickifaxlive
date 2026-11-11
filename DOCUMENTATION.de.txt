@@ -17,3 +17,15 @@ Profilbuilds das grosse Diagnosemodul auslassen. Der Workspace-Modus
 Browserprotokollen. Da der automatisierte Headless-Lauf ohne Netzwerk
 startet, werden die Live-Proben anschliessend bei Bedarf manuell in einer
 netzwerkfaehigen QEMU-Sitzung ausgefuehrt.
+
+Fortschreibung 0.90.75 - App2 und Live-Ressourcen
+------------------------------------------------
+KlickifaxLive0.2.25 verwendet SDK208, App2 und Query2 sowie R4IMG.init2
+fuer Bild- und Scriptressourcen. Die Argumentlaenge stammt aus dem echten
+Startrecord. Ressourcenschleifen halten eine gemeinsame30s-Clockfrist und
+reale Nanosekunden fuer Timer/Idle. RequestJob behaelt Leihen und Callback-
+Owner bis zur wirklichen Workerquittung. Das Manifest fordert das vorhandene
+Browser-Speicherprofil an. Die unveraenderte Originalversion erschopfte
+bei der nativen Scriptprobe ihren4MB-Stack. Das Browserprofil reserviert
+32MB. Die Live-Proben, Quellbindungen und jeweiligen Netzwerkreichweiten
+stehen in API/ConsumerMigration.txt im projektweiten Docs-Repository.

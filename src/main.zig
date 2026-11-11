@@ -184,13 +184,13 @@ const ScriptNavigation = struct {
     steps: usize,
 };
 
-pub fn r4_app_main(r4_app: *r4os.App) i32 {
+pub fn r4_app_main(r4_app: *r4os.App2) i32 {
     const sys = r4_app.system();
     var web = r4_app.web() orelse {
         sys.println("KFXLIVE result=error code=web_transport_unavailable");
         return 1;
     };
-    const args = trim(zSlice(sys.argsRaw()));
+    const args = trim(r4_app.args());
     const script_mode = startsWithIgnoreCase(args, script_switch) and
         (args.len == script_switch.len or isSpace(args[script_switch.len]));
     const script_args = if (script_mode) trim(args[script_switch.len..]) else "";
@@ -326,7 +326,7 @@ pub fn r4_app_main(r4_app: *r4os.App) i32 {
             if (consent_mode) return runConsentFlow(sys, &web, allocator, buffers, storage, response);
             if (page_mode) return runPageFlow(sys, allocator, response);
             if (image_mode) {
-                const images = r4img.Context.init(r4_app.startContext()) orelse {
+                const images = r4img.Context.init2(r4_app.startContext()) orelse {
                     sys.println("KFXLIVE image-result=error code=r4img_unavailable");
                     return 1;
                 };
@@ -787,7 +787,7 @@ fn executePageScripts(
     }, script_step_budget);
     runtime.setScriptObserver(.{ .context = &trace_context, .report = reportScriptExecution });
     runtime.setMonotonicClock(.{ .context = &trace_context, .now_milliseconds = diagnosticMonotonicNow });
-    var resource_context: ScriptResources = .{ .probe = probe, .images = if (sys.base.bundle) |bundle| r4img.Context.init(bundle.raw) else null };
+    var resource_context: ScriptResources = .{ .probe = probe, .images = if (sys.base.generation2) |context| r4img.Context.init2(context.raw) else null };
     runtime.setResourceHandler(.{ .context = &resource_context, .complete = completeScriptResource });
     const requests = try allocator.alloc(r4os.web_runtime_jobs.RequestJob, r4os.app_web_jobs.capacity);
     defer allocator.free(requests);
@@ -823,8 +823,14 @@ fn executePageScripts(
     var target: ?r4os.web_navigation.Url = null;
     var lifecycle_sent = false;
     var idle_since: ?u64 = null;
-    const deadline = sys.ticks() +| sys.ticksFromMilliseconds(30_000);
-    while (sys.ticks() < deadline and target == null and !sys.programShouldClose()) {
+    const context = sys.base.generation2 orelse return error.ClockUnavailable;
+    const clock = try r4os.stream_transfer.adapters.PlatformClock.fromContext2(context);
+    var budget = try r4os.rpc_budget.Budget.fromTimeout(clock.read, r4os.time_contract.timeoutFinite(.{ .nanoseconds = 30_000_000_000 }));
+    while (target == null and !sys.programShouldClose()) {
+        _ = budget.remainingTicks() catch |err| {
+            if (err == error.TimedOut) break;
+            return err;
+        };
         var active: usize = 0;
         for (requests) |*request| {
             if (request.active and request.poll()) {
@@ -867,8 +873,9 @@ fn executePageScripts(
             else => {},
         };
         if (jobs == 0 and active == 0 and lifecycle_sent) {
-            if (idle_since == null) idle_since = sys.ticks();
-            if (sys.ticks() -| idle_since.? >= sys.ticksFromMilliseconds(5_000)) break;
+            const now = sys.monotonicNanoseconds() orelse return error.ClockUnavailable;
+            if (idle_since == null) idle_since = now;
+            if (now -| idle_since.? >= 5_000_000_000) break;
         } else idle_since = null;
         if (target == null) sys.sleepTicks(1);
     }
@@ -938,9 +945,8 @@ fn reportScriptProgress(raw_context: ?*anyopaque) bool {
 
 fn diagnosticMonotonicNow(raw_context: ?*anyopaque) f64 {
     const context: *const ScriptTraceContext = @ptrCast(@alignCast(raw_context orelse return 0));
-    const frequency = context.sys.monotonicHz();
-    if (frequency == 0) return @floatFromInt(context.sys.ticks());
-    return @as(f64, @floatFromInt(context.sys.ticks())) * 1000.0 / @as(f64, @floatFromInt(frequency));
+    const sample = context.sys.base.clockSampleChecked() catch return 0;
+    return @as(f64, @floatFromInt(sample.instant_ns)) / 1_000_000.0;
 }
 
 fn reportScriptExecution(raw_context: ?*anyopaque, event: r4os.web_runtime.ScriptExecutionEvent) void {

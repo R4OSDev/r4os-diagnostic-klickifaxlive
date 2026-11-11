@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.2.10`
+- Version: `0.2.25`
 - Image target: `/R4OS/SOFTWARE/TERMINAL/DIAG/KFXLIVE.R4X`
 - Image scope: `none` (included only by the explicit browser test)
 - Canonical project manifest: `module.R4MF`
@@ -18,7 +18,7 @@ On Windows:
 
     Build.bat
 
-On Linux or macOS:
+On Linux:
 
     ./Build.sh
 
@@ -29,10 +29,10 @@ it together with Klickifax and the browser protocols. KFXLIVE itself needs a
 network-enabled manual guest session for its live probes; the automated
 headless browser run has networking disabled.
 
-The build starters resolve the current local R4OS dependency checkouts through
-`Settings.R4S`. The URL and hash entries in `build.zig.zon` record the
-last verified standalone dependency identities; workspace builds use the
-mapped local checkouts.
+`Settings.R4S` selects the SDK tool owner. Its profiles define the verified
+SDK, Contract and system library sources. `build.zig.zon` records the exact
+standalone archive identities. The shared PowerShell build path binds the
+actual selected sources and records its normal or explicit development mode.
 
 ## Documentation
 
@@ -45,3 +45,5 @@ Detailed German technical notes from the migration are preserved in
 Original R4OS material is licensed under Apache License 2.0. See `LICENSE`
 and `NOTICE`. Any repository-specific external material is documented in
 `THIRD_PARTY_NOTICES.md`.
+
+API migration0.90.75 uses SDK0.64.208 with `r4os-zig-generation2`.
