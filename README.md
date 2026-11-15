@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.2.25`
+- Version: `0.2.27`
 - Image target: `/R4OS/SOFTWARE/TERMINAL/DIAG/KFXLIVE.R4X`
 - Image scope: `none` (included only by the explicit browser test)
 - Canonical project manifest: `module.R4MF`
@@ -47,3 +47,8 @@ and `NOTICE`. Any repository-specific external material is documented in
 `THIRD_PARTY_NOTICES.md`.
 
 API migration0.90.75 uses SDK0.64.208 with `r4os-zig-generation2`.
+
+The CSS owner in SDK 0.64.224 prepares selector parts and bounded ordered
+candidate indexes at stylesheet load. Exact matching, cascade, responsive
+layout and live DOM/state reads are preserved; computed styles are not
+persistently cached. This artifact includes that implementation.
