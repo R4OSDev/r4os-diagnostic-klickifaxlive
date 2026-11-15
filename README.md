@@ -4,7 +4,7 @@
 
 ## Package
 
-- Version: `0.2.27`
+- Version: `0.2.28`
 - Image target: `/R4OS/SOFTWARE/TERMINAL/DIAG/KFXLIVE.R4X`
 - Image scope: `none` (included only by the explicit browser test)
 - Canonical project manifest: `module.R4MF`
@@ -52,3 +52,5 @@ The CSS owner in SDK 0.64.224 prepares selector parts and bounded ordered
 candidate indexes at stylesheet load. Exact matching, cascade, responsive
 layout and live DOM/state reads are preserved; computed styles are not
 persistently cached. This artifact includes that implementation.
+
+The embedded SDK 0.64.225 JavaScript front end rejects excessive recursive syntax/AST traversal with existing CallDepth, retaining normal parse recovery and the independent runtime call limit.
